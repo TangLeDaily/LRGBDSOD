@@ -10,7 +10,7 @@ from torch import optim
 from util import *
 
 # model name
-from rootmodel.ResNet34_Update import *
+from rootmodel.ResNet34_MD import *
 model = LRGBDSOD()
 test_dataset_name = ['DUT', 'NJUD', 'NLPR']
 # ['DUT', 'NJUD', 'NLPR', 'SSD', 'STEREO', 'LFSD', 'RGBD135']
@@ -19,7 +19,7 @@ parser = argparse.ArgumentParser(description="PyTorch Data_Pre")
 # wandb and project
 parser.add_argument("--use_wandb", default=False, action="store_true")
 parser.add_argument("--Project_name", default="LRGBDSOD_V1", type=str) # wandb Project name
-parser.add_argument("--This_name", default="R34_Deco", type=str) # wandb run name & model save name path
+parser.add_argument("--This_name", default="ResNet34_MD", type=str) # wandb run name & model save name path
 parser.add_argument("--wandb_username", default="karledom", type=str)
 # dataset 文件夹要以/结尾
 parser.add_argument("--train_image_root", default='datasets/train_ori/train_images/', type=str, help="train root path")
@@ -29,10 +29,10 @@ parser.add_argument("--trainsize", default=256, type=int)
 parser.add_argument("--test_root_path", default='datasets/test_data/', type=str, help="test root path")
 # train setting
 parser.add_argument("--cuda", default=True, action="store_true")
-parser.add_argument("--cuda_id", default=1, type=int)
+parser.add_argument("--cuda_id", default=2, type=int)
 parser.add_argument("--start_epoch", default=0, type=int)
 parser.add_argument("--max_epoch", default=10000, type=int)
-parser.add_argument("--batchSize", default=8, type=int)
+parser.add_argument("--batchSize", default=32, type=int)
 parser.add_argument("--lr", default=0.001, type=float)
 parser.add_argument("--threads", default=8, type=int)
 # other setting
@@ -88,7 +88,7 @@ def main():
         # 训练
         train(optimizer, model, criterion, epoch, train_loader)
         # 测试和保存
-        if (epoch+0) % opt.test_save_epoch == 0:
+        if (epoch+1) % opt.test_save_epoch == 0:
             save_mae, save_Em, save_Sm, save_Fm = test(model, epoch, optimizer.param_groups[0]["lr"])
             save_checkpoint(model, epoch, optimizer.param_groups[0]["lr"], save_mae, save_Em, save_Sm, save_Fm)
         # 降低学习率
