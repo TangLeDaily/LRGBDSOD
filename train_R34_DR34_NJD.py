@@ -10,16 +10,16 @@ from torch import optim
 from util import *
 
 # model name
-from rootmodel.ResNet34_DR34 import *
+from rootmodel.ResNet34_DR34_NJD import *
 model = LRGBDSOD()
 test_dataset_name = ['DUT', 'NJUD', 'NLPR']
 # ['DUT', 'NJUD', 'NLPR', 'SSD', 'STEREO', 'LFSD', 'RGBD135']
 
 parser = argparse.ArgumentParser(description="PyTorch Data_Pre")
 # wandb and project
-parser.add_argument("--use_wandb", default=True, action="store_true")
+parser.add_argument("--use_wandb", default=False, action="store_true")
 parser.add_argument("--Project_name", default="LRGBDSOD_V1", type=str) # wandb Project name
-parser.add_argument("--This_name", default="ResNet34_DR34_2", type=str) # wandb run name & model save name path
+parser.add_argument("--This_name", default="ResNet34_DR34_NJD", type=str) # wandb run name & model save name path
 parser.add_argument("--wandb_username", default="karledom", type=str)
 # dataset 文件夹要以/结尾
 parser.add_argument("--train_image_root", default='datasets/train_ori/train_images/', type=str, help="train root path")
