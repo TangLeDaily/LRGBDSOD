@@ -81,7 +81,6 @@ class CenterCombineAttention(nn.Module):
         # print("asfdafas")
         return out
 
-
 class JointAttention(nn.Module):
     def __init__(self, in_channel, ratio=16):
         super(JointAttention, self).__init__()
@@ -99,12 +98,7 @@ class JointAttention(nn.Module):
                                 nn.Conv2d(in_channel // ratio, in_channel, 1, bias=False),
                                 nn.Sigmoid())
         #
-        self.cat_conv = BasicBlock(in_channel*2, in_channel,nn.Conv2d(in_channel*2, in_channel, 1, 1, 0))
-        self.rgb_dotConv = nn.Sequential(nn.Conv2d(in_channel, in_channel // ratio, 1, bias=False),
-                                nn.ReLU(),
-                                nn.Conv2d(in_channel // ratio, in_channel, 1, bias=False),
-                                nn.Sigmoid())
-        self.depth_dotConv = nn.Sequential(nn.Conv2d(in_channel, in_channel // ratio, 1, bias=False),
+        self.sum_convFC = nn.Sequential(nn.Conv2d(in_channel, in_channel // ratio, 1, bias=False),
                                 nn.ReLU(),
                                 nn.Conv2d(in_channel // ratio, in_channel, 1, bias=False),
                                 nn.Sigmoid())
@@ -112,13 +106,10 @@ class JointAttention(nn.Module):
     def forward(self, rgb, depth):
         rgb_fea = self.avg_convFC(self.avg_pool(rgb)+self.max_pool(rgb))
         depth_fea = self.max_convFC(self.max_pool(depth)+self.avg_pool(depth))
-        cat = torch.cat((rgb, depth), dim=1)
-        cat = self.cat_conv(cat)
-        rgb_fea = self.rgb_dotConv(rgb_fea * cat)
-        depth_fea = self.depth_dotConv(depth_fea * cat)
-
-        rgb_out = rgb * rgb_fea + rgb
-        depth_out = depth * depth_fea + depth
+        sum_fea = rgb_fea + depth_fea
+        sum_fea = self.sum_convFC(sum_fea)
+        rgb_out = rgb * sum_fea + rgb
+        depth_out = depth * sum_fea + depth
         return rgb_out, depth_out
 
 class FusionAttention(nn.Module):
@@ -168,6 +159,44 @@ class FusionAttention(nn.Module):
 
         out = fuse_out * attn + fuse_out
         return out
+class FFMCell(nn.Module):
+    def __init__(self, c):
+        super(FFMCell, self).__init__()
+        self.xConv_first = nn.Conv2d(c, c, 3, 1, 1)
+        self.yConv_first = nn.Conv2d(c, c, 3, 1, 1)
+        self.xyConv = nn.Conv2d(c, c, 3, 1, 1)
+        self.yPConv = nn.Conv2d(c, c, 3, 1, 1)
+        self.zConv_a1 = nn.Conv2d(c, c, 3, 1, 1)
+        self.zConv_a2 = nn.Conv2d(c, c, 3, 1, 1)
+        self.tanh = nn.Tanh()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x, y):
+        x_ = self.xConv_first(x)
+        y_ = self.yConv_first(y)
+        xy_ = self.xyConv(x_+y_)
+        y_p = self.tanh(self.yPConv(xy_ * y + xy_))
+        z_a = self.sigmoid(self.zConv_a1(x)+self.zConv_a2(y_p))
+        z_b = z_a * y_p
+        x = x*(1-z_a) + z_b
+        return x
+
+class FFM(nn.Module):
+    def __init__(self, c, nums=3):
+        super(FFM, self).__init__()
+        self.nums = nums
+        self.cell1 = FFMCell(c)
+        self.cell2 = FFMCell(c)
+    def forward(self, r, d):
+        r_x = r
+        r_y = d
+
+        d_x = r
+        d_y = d
+        for i in range(self.nums):
+            r_x = self.cell1(r_x, r_y)
+            d_y = self.cell2(d_y, d_x)
+        return r_x, d_y
 
 class PixUpBlock(nn.Module):
     def __init__(self, in_channel):
@@ -193,11 +222,11 @@ class MSJCA(nn.Module):
         self.dep_con4 = ResNet34_4()
         self.dep_con5 = ResNet34_5()
 
-        self.JA1 = JointAttention(in_channel=64, ratio=16)
-        self.JA2 = JointAttention(in_channel=64, ratio=16)
-        self.JA3 = JointAttention(in_channel=128, ratio=16)
-        self.JA4 = JointAttention(in_channel=256, ratio=16)
-        self.JA5 = JointAttention(in_channel=512, ratio=16)
+        self.JA1 = FFM(64)
+        self.JA2 = FFM(64)
+        self.JA3 = FFM(128)
+        self.JA4 = FFM(256)
+        self.JA5 = FFM(512)
 
     def forward(self, rgb_input, depth_input):
         rgb_1 = self.rgb_con1(rgb_input)
@@ -364,7 +393,10 @@ class LRGBDSOD(nn.Module):
         # fus_2 = self.fattn2(rgb_2, depth_2) # [4, 256, 16, 16]
         # fus_3 = self.fattn3(rgb_3, depth_3) # [4, 512, 8, 8]
 
-
+        # 实际上，在初次交流也就是那天下班打听发绳之前，种子便已经埋下，但发绳仍然发挥了不可埋没的作用；偶然的机会让我在餐厅遇见，偶然的机会让我看到那发绳所烘托下的身影
+        # 我并不知道这份情绪是如何成长的，同样也不了解喜欢的到底是什么，我无法提供一个准确的标签来表述，我也不会说“喜欢的是全部”这种说法，我可以接受隐瞒但从不说谎，不会叙述一件我自己都不明确的事情。
+        # 有时候我就会想，或许最不了解自己的就是自己。而在这种时候就会去寻找共鸣的他人所想，他人所感，试图从中找到自我。
+        # 实际上，引用他人的说法是极其主观的，就好似“成大事者不拘小节”和“一屋不扫何以扫天下”，两句话有时候的观点可以说完全对立，但又无法否定任何一句的正确性，所谓引用不过是给自己主观想法的表达增加一份底气罢了，但也正因如此，才能认识到自我的真实所在，才能因此了解自己。
         center = self.CCA(rgb_2, depth_2)
         rgb_1 = self.rgbUpblock1(rgb_1)
         rgb_2 = self.rgbUpblock2(rgb_2)

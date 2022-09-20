@@ -10,17 +10,17 @@ from torch import optim
 from util import *
 
 # model name
-from rootmodel.ResNet34_DR34 import *
+from rootmodel.ResNet34_DR34_Double import *
 model = LRGBDSOD()
 test_dataset_name = ['DUT', 'NJUD', 'NLPR']
 # ['DUT', 'NJUD', 'NLPR', 'SSD', 'STEREO', 'LFSD', 'RGBD135']
 
 parser = argparse.ArgumentParser(description="PyTorch Data_Pre")
 # wandb and project
-parser.add_argument("--use_wandb", default=True, action="store_true")
+parser.add_argument("--use_wandb", default=False, action="store_true")
 parser.add_argument("--Project_name", default="LRGBDSOD_V1", type=str) # wandb Project name
-parser.add_argument("--This_name", default="ResNet34_DR34_2", type=str) # wandb run name & model save name path
-parser.add_argument("--wandb_username", default="tangle", type=str)
+parser.add_argument("--This_name", default="ResNet34_DR34_Double", type=str) # wandb run name & model save name path
+parser.add_argument("--wandb_username", default="karledom", type=str)
 # dataset 文件夹要以/结尾
 parser.add_argument("--train_image_root", default='datasets/train_ori/train_images/', type=str, help="train root path")
 parser.add_argument("--train_gt_root", default='datasets/train_ori/train_masks/', type=str, help="train root path")
@@ -110,8 +110,8 @@ def train(optimizer, model, criterion, epoch, train_loader):
             gts = gts.cuda()
             depths = depths.cuda()
             depths = torch.cat([depths, depths, depths], dim=1)
-        out = model(images, depths)
-        loss = criterion(out, gts)
+        out1, out2 = model(images, depths)
+        loss = 0.2*criterion(out1, gts) + 0.8*criterion(out2, gts)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -143,7 +143,7 @@ def test(model, epoch, lr, savename="DUT"):
                     depth = depth.cuda()
                     depth = torch.cat([depth, depth, depth], dim=1)
                     gt = gt.cuda()
-                out = model(image, depth)
+                _, out = model(image, depth)
                 out = out.sigmoid()
                 T_mae.update(MAE(out, gt))
                 T_Em.update(Em(out, gt))

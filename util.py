@@ -67,8 +67,9 @@ def Sm(pred, gt):
     else:
         Q = alpha * S_object(pred, gt) + (1 - alpha) * S_region(pred, gt)
         if Q.item() < 0:
-            Q = torch.FLoatTensor([0.0])
+            Q = torch.FloatTensor([0.0])
     return Q
+
 
 
 def eval_pr(y_pred, y, num):
@@ -132,7 +133,7 @@ def _centroid(gt):
     else:
         total = gt.sum()
         i = torch.from_numpy(np.arange(0, cols)).cuda().float()
-        j = torch.from_numpy(np.arange(0, rows)).cuda().float()
+        j = torch.from_numpy(np.arange(0, rows)).cuda().float() #
         X = torch.round((gt.sum(dim=0) * i).sum() / total)
         Y = torch.round((gt.sum(dim=1) * j).sum() / total)
     return X.long(), Y.long()
@@ -185,3 +186,15 @@ def _ssim(pred, gt):
     else:
         Q = 0
     return Q
+
+if __name__ == "__main__":
+    pred = torch.randn(1, 1, 64, 64)
+    gt = torch.randn(1, 1, 64, 64)
+    pred = torch.sigmoid(pred)
+    gt = torch.sigmoid(gt)
+    alpha = 0.5
+    Q = alpha * S_object(pred, gt) + (1 - alpha) * S_region(pred, gt)
+    Z = Sm(pred, gt)
+    print(torch.FloatTensor([0.0]))
+    print(Q)
+    print(Z)

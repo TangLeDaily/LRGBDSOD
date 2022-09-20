@@ -81,7 +81,6 @@ class CenterCombineAttention(nn.Module):
         # print("asfdafas")
         return out
 
-
 class JointAttention(nn.Module):
     def __init__(self, in_channel, ratio=16):
         super(JointAttention, self).__init__()
@@ -99,12 +98,7 @@ class JointAttention(nn.Module):
                                 nn.Conv2d(in_channel // ratio, in_channel, 1, bias=False),
                                 nn.Sigmoid())
         #
-        self.cat_conv = BasicBlock(in_channel*2, in_channel,nn.Conv2d(in_channel*2, in_channel, 1, 1, 0))
-        self.rgb_dotConv = nn.Sequential(nn.Conv2d(in_channel, in_channel // ratio, 1, bias=False),
-                                nn.ReLU(),
-                                nn.Conv2d(in_channel // ratio, in_channel, 1, bias=False),
-                                nn.Sigmoid())
-        self.depth_dotConv = nn.Sequential(nn.Conv2d(in_channel, in_channel // ratio, 1, bias=False),
+        self.sum_convFC = nn.Sequential(nn.Conv2d(in_channel, in_channel // ratio, 1, bias=False),
                                 nn.ReLU(),
                                 nn.Conv2d(in_channel // ratio, in_channel, 1, bias=False),
                                 nn.Sigmoid())
@@ -112,13 +106,10 @@ class JointAttention(nn.Module):
     def forward(self, rgb, depth):
         rgb_fea = self.avg_convFC(self.avg_pool(rgb)+self.max_pool(rgb))
         depth_fea = self.max_convFC(self.max_pool(depth)+self.avg_pool(depth))
-        cat = torch.cat((rgb, depth), dim=1)
-        cat = self.cat_conv(cat)
-        rgb_fea = self.rgb_dotConv(rgb_fea * cat)
-        depth_fea = self.depth_dotConv(depth_fea * cat)
-
-        rgb_out = rgb * rgb_fea + rgb
-        depth_out = depth * depth_fea + depth
+        sum_fea = rgb_fea + depth_fea
+        sum_fea = self.sum_convFC(sum_fea)
+        rgb_out = rgb * sum_fea + rgb
+        depth_out = depth * sum_fea + depth
         return rgb_out, depth_out
 
 class FusionAttention(nn.Module):
@@ -255,9 +246,10 @@ class Decoder_A(nn.Module):
         return rgb_conv3_out, depth_conv3_out
 
 # 可能的总体模型
-class LRGBDSOD(nn.Module):
-    def __init__(self, rfb_out_channel=32):
-        super(LRGBDSOD, self).__init__()
+class LRGBDSOD_mini(nn.Module):
+    def __init__(self, first=False):
+        super(LRGBDSOD_mini, self).__init__()
+        self.first = first
         self.MSJCA = MSJCA()
         self.Decoder_A = Decoder_A()
         self.A_fusion = FusionAttention(64)
@@ -334,13 +326,15 @@ class LRGBDSOD(nn.Module):
             BasicBlock(8, 8)
         )
         self.last_conv = make_layer(CSBasicBlock, 10, inplanes=48, planes=48)
+        if self.first:
+            self.next_conv = nn.Conv2d(12, 3, 1, 1, 0)
         self.out_conv = nn.Conv2d(12, 1, 3, 1, 1)
 
         # self.Decoder = nn.Sequential()
 
-    def forward(self, low_input, high_input):
+    def forward(self, rgb_input, depth_input):
         # VGG
-        rgb_1, rgb_2, rgb_3, depth_1, depth_2, depth_3 = self.MSJCA(low_input, high_input)
+        rgb_1, rgb_2, rgb_3, depth_1, depth_2, depth_3 = self.MSJCA(rgb_input, depth_input)
         r_A, d_A = self.Decoder_A(rgb_1, rgb_2, rgb_3, depth_1, depth_2, depth_3)
         A_fu = self.A_fusion(r_A, d_A)
         A_fu = self.A_fuRestoration(A_fu)
@@ -415,7 +409,21 @@ class LRGBDSOD(nn.Module):
         # print(center.size())
         out = self.out_conv(last)
         # print("out:", out.size())
-        return out
+        if self.first:
+            next = self.next_conv(last)
+            return next, out
+        else:
+            return None, out
+
+class LRGBDSOD(nn.Module):
+    def __init__(self):
+        super(LRGBDSOD, self).__init__()
+        self.mini1 = LRGBDSOD_mini(True)
+        self.mini2 = LRGBDSOD_mini(False)
+    def forward(self, rgb_input, depth_input):
+        next, out1 = self.mini1(rgb_input, depth_input)
+        _, out2 = self.mini2(rgb_input, next)
+        return out1, out2
 
 if __name__ == "__main__":
     a = torch.randn(8, 3, 256, 256)
