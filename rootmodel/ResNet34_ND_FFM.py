@@ -283,169 +283,71 @@ class Decoder_A(nn.Module):
         # depth: torch.Size([4, 64, 128, 128])
         return rgb_conv3_out, depth_conv3_out
 
+class Decoder_B(nn.Module):
+    def __init__(self):
+        super(Decoder_B, self).__init__()
+        self.rgb_con3 = DeResNet34_3()
+        self.rgb_con4 = DeResNet34_4()
+        self.rgb_con5 = DeResNet34_5()
+
+
+        self.rgbEn3 = RFB(128, 128)
+        self.rgbEn4 = RFB(256, 256)
+        self.rgbEn5 = RFB(512, 512)
+
+    def forward(self, rgb_3, rgb_4, rgb_5):
+        rgb_conv5_out = self.rgb_con5(self.rgbEn5(rgb_5))
+        rgb_conv4_out = self.rgb_con4(self.rgbEn4(rgb_conv5_out + rgb_4))
+        rgb_conv3_out = self.rgb_con3(self.rgbEn3(rgb_conv4_out + rgb_3))
+
+        # rgb: torch.Size([4, 64, 64, 64])
+        # depth: torch.Size([4, 64, 128, 128])
+        return rgb_conv3_out
+
 # 可能的总体模型
 class LRGBDSOD(nn.Module):
     def __init__(self, rfb_out_channel=32):
         super(LRGBDSOD, self).__init__()
         self.MSJCA = MSJCA()
-        self.Decoder_A = Decoder_A()
-        self.A_fusion = FusionAttention(64)
-        self.A_fuRestoration = nn.Sequential(
-            BasicBlock(64, 64),
-            BasicBlock(64, 64),
-            BasicBlock(64, 64)
-        )
-        self.A_up = PixUpBlock(64)
-
-        self.CCA = CenterCombineAttention(in_channel=256)
-        # self.CenterUpConvLast = nn.Sequential(
-        #     PixUpBlock(8),
-        #     nn.Conv2d(2, 2, 3, 1, 1)
-        # )
-
-        self.rgbUpblock1 = nn.Sequential(
-            PixUpBlock(128),
-        )
-
-        self.rgbUpblock2 = nn.Sequential(
-            PixUpBlock(256),
-            nn.Conv2d(64, 128, 3, 1, 1),
-            nn.BatchNorm2d(128),
+        self.Decoder_B = Decoder_B()
+        self.relu = nn.ReLU(inplace=True)
+        self.upsample = nn.Upsample(
+            scale_factor=2, mode='bilinear', align_corners=False)
+        self.Decoder_A = nn.Sequential(
+            nn.Conv2d(64, 64, 3, 1, 1),
             nn.ReLU(inplace=True),
-            PixUpBlock(128)
-        )
-
-        self.rgbUpblock3 = nn.Sequential(
-            PixUpBlock(512),
-            PixUpBlock(128),
-            nn.Conv2d(32, 128, 3, 1, 1),
-            nn.BatchNorm2d(128),
+            nn.Upsample(
+                scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(64, 32, 3, 1, 1),
             nn.ReLU(inplace=True),
-            PixUpBlock(128),
-        )
-        self.depthUpblock1 = nn.Sequential(
-            PixUpBlock(128),
-        )
-
-        self.depthUpblock2 = nn.Sequential(
-            PixUpBlock(256),
-            nn.Conv2d(64, 128, 3, 1, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            PixUpBlock(128)
+            nn.Upsample(
+                scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(32, 1, 3, 1, 1)
         )
 
-        self.depthUpblock3 = nn.Sequential(
-            PixUpBlock(512),
-            PixUpBlock(128),
-            nn.Conv2d(32, 128, 3, 1, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            PixUpBlock(128),
-        )
-
-        self.fattn1 = FusionAttention(32)
-        self.fattn2 = FusionAttention(32)
-        self.fattn3 = FusionAttention(32)
-
-        self.agg_block_1 = PixUpBlock(32)
-        self.agg_block_2 = PixUpBlock(32)
-        self.agg_block_3 = PixUpBlock(32)
-
-        self.lastUp = nn.Sequential(
-            PixUpBlock(48)
-        )
-        self.CCA_after = nn.Sequential(
-            nn.Conv2d(4, 8, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            BasicBlock(8, 8),
-            BasicBlock(8, 8),
-            BasicBlock(8, 8)
-        )
-        self.last_conv = make_layer(CSBasicBlock, 10, inplanes=48, planes=48)
-        self.out_conv = nn.Conv2d(12, 1, 3, 1, 1)
-
-        # self.Decoder = nn.Sequential()
+        self.fattn1 = FusionAttention(128)
+        self.fattn2 = FusionAttention(256)
+        self.fattn3 = FusionAttention(512)
 
     def forward(self, low_input, high_input):
         # VGG
         rgb_1, rgb_2, rgb_3, depth_1, depth_2, depth_3 = self.MSJCA(low_input, high_input)
-        r_A, d_A = self.Decoder_A(rgb_1, rgb_2, rgb_3, depth_1, depth_2, depth_3)
-        A_fu = self.A_fusion(r_A, d_A)
-        A_fu = self.A_fuRestoration(A_fu)
-        # r_A,d_A: [4, 64, 64, 64]
-
-        # print("pre:")
-        # print(rgb_1.size())
-        # print(rgb_2.size())
-        # print(rgb_3.size())
-        # print(depth_1.size())
-        # print(depth_2.size())
-        # print(depth_3.size())
-
-        # pre:
-
-        # torch.Size([4, 128, 32, 32])
-        # torch.Size([4, 256, 16, 16])
-        # torch.Size([4, 512, 8, 8])
-        # torch.Size([4, 128, 32, 32])
-        # torch.Size([4, 256, 16, 16])
-        # torch.Size([4, 512, 8, 8])
-        # fus_1 = self.fattn1(rgb_1, depth_1) # [4, 128, 32, 32]
-        # fus_2 = self.fattn2(rgb_2, depth_2) # [4, 256, 16, 16]
-        # fus_3 = self.fattn3(rgb_3, depth_3) # [4, 512, 8, 8]
-
-        center = self.CCA(rgb_2, depth_2)
-        rgb_1 = self.rgbUpblock1(rgb_1)
-        rgb_2 = self.rgbUpblock2(rgb_2)
-        rgb_3 = self.rgbUpblock3(rgb_3)
-
-        depth_1 = self.depthUpblock1(depth_1)
-        depth_2 = self.depthUpblock2(depth_2)
-        depth_3 = self.depthUpblock3(depth_3)
-        # print("then:")
-        # print(rgb_1.size())
-        # print(rgb_2.size())
-        # print(rgb_3.size())
-        # print(depth_1.size())
-        # print(depth_2.size())
-        # print(depth_3.size())
-
-        # then:
-
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
 
         fa_1 = self.fattn1(rgb_1, depth_1) # 128, 128, 64
         fa_2 = self.fattn2(rgb_2, depth_2) # 128, 128, 32
         fa_3 = self.fattn3(rgb_3, depth_3) # 64, 64 ,32
-        # 全部 128， 128 ，32
-        # print("after")
+
         # print(fa_1.size())
         # print(fa_2.size())
         # print(fa_3.size())
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
+        # torch.Size([8, 128, 32, 32])
+        # torch.Size([8, 256, 16, 16])
+        # torch.Size([8, 512, 8, 8])
+        out_Decode = self.Decoder_B(fa_1, fa_2, fa_3)
+        # print(out_Decode.size())
+        # torch.Size([8, 64, 64, 64])
+        out = self.Decoder_A(out_Decode)
 
-        fa_1_c = self.agg_block_1(fa_1)
-        fa_2_c = self.agg_block_2(fa_2)
-        fa_3_c = self.agg_block_3(fa_3)
-
-        sum_c = torch.cat((fa_3_c, fa_2_c, fa_1_c, self.CCA_after(center), self.A_up(A_fu)), dim=1) # c=32*3
-        # print("sum_c:", sum_c.size())
-        last = self.last_conv(sum_c)
-        # print("last_conv:", last.size())
-        last = self.lastUp(last)
-        # print("last_up:", last.size())
-        # print(last.size())
-        # print(center.size())
-        out = self.out_conv(last)
-        # print("out:", out.size())
         return out
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import torch.nn as nn
 from rootmodel.model_util import *
 from rootmodel.model_base import *
 
+
 class CenterCombinePoolLayer(nn.Module):
     def __init__(self, in_channel):
         super(CenterCombinePoolLayer, self).__init__()
@@ -14,6 +15,7 @@ class CenterCombinePoolLayer(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.upsample = nn.Upsample(
             scale_factor=2, mode='bilinear', align_corners=False)
+
     def forward(self, x):
         attn_pre_1 = self.relu(self.attn_ScaleConv1(x))
         attn_max_1 = self.max_pool(attn_pre_1)
@@ -26,6 +28,7 @@ class CenterCombinePoolLayer(nn.Module):
 
         out = x * attn + x
         return out
+
 
 class CenterCombineAttention(nn.Module):
     def __init__(self, in_channel=64):
@@ -40,20 +43,21 @@ class CenterCombineAttention(nn.Module):
         self.Up1_pre = PixUpBlock(in_channel)
         self.CCP1 = CenterCombinePoolLayer(in_channel)
         self.Up1_after = PixUpBlock(in_channel)
-        self.Up2_pre = PixUpBlock(in_channel//4)
-        self.CCP2 = CenterCombinePoolLayer(in_channel//4)
-        self.Up2_after = PixUpBlock(in_channel//4)
-        self.Up3_pre = PixUpBlock(in_channel//16)
-        self.CCP3 = CenterCombinePoolLayer(in_channel//16)
-        self.Up3_after = PixUpBlock(in_channel//16)
+        self.Up2_pre = PixUpBlock(in_channel // 4)
+        self.CCP2 = CenterCombinePoolLayer(in_channel // 4)
+        self.Up2_after = PixUpBlock(in_channel // 4)
+        self.Up3_pre = PixUpBlock(in_channel // 16)
+        self.CCP3 = CenterCombinePoolLayer(in_channel // 16)
+        self.Up3_after = PixUpBlock(in_channel // 16)
 
-        self.ConvLast = BasicBlock(in_channel//64, in_channel//64)
+        self.ConvLast = BasicBlock(in_channel // 64, in_channel // 64)
 
         self.relu = nn.ReLU(inplace=True)
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
         self.sigmoid = nn.Sigmoid()
         self.upsample = nn.Upsample(
             scale_factor=2, mode='bilinear', align_corners=False)
+
     def forward(self, rgb, depth):
         b, c, h, w = rgb.size()
         # temporal attention
@@ -70,16 +74,17 @@ class CenterCombineAttention(nn.Module):
         Up1_after = self.Up1_after(self.CCP1(fuse_out))
 
         Up2_pre = self.Up2_pre(Up1_pre)
-        Up2_after = self.Up2_after(self.CCP2(Up1_after+Up1_pre))
+        Up2_after = self.Up2_after(self.CCP2(Up1_after + Up1_pre))
 
         Up3_pre = self.Up3_pre(Up2_pre)
-        Up3_after = self.Up3_after(self.CCP3(Up2_after+Up2_pre))
+        Up3_after = self.Up3_after(self.CCP3(Up2_after + Up2_pre))
 
-        out = self.ConvLast(Up3_pre+Up3_after)
+        out = self.ConvLast(Up3_pre + Up3_after)
         # C=8, H=128, W=128
         # print(out.size())
         # print("asfdafas")
         return out
+
 
 class JointAttention(nn.Module):
     def __init__(self, in_channel, ratio=16):
@@ -94,54 +99,55 @@ class JointAttention(nn.Module):
 
         self.max_pool = nn.AdaptiveMaxPool2d(1)
         self.max_convFC = nn.Sequential(nn.Conv2d(in_channel, in_channel // ratio, 1, bias=False),
-                                nn.ReLU(),
-                                nn.Conv2d(in_channel // ratio, in_channel, 1, bias=False),
-                                nn.Sigmoid())
+                                        nn.ReLU(),
+                                        nn.Conv2d(in_channel // ratio, in_channel, 1, bias=False),
+                                        nn.Sigmoid())
         #
         self.sum_convFC = nn.Sequential(nn.Conv2d(in_channel, in_channel // ratio, 1, bias=False),
-                                nn.ReLU(),
-                                nn.Conv2d(in_channel // ratio, in_channel, 1, bias=False),
-                                nn.Sigmoid())
+                                        nn.ReLU(),
+                                        nn.Conv2d(in_channel // ratio, in_channel, 1, bias=False),
+                                        nn.Sigmoid())
 
     def forward(self, rgb, depth):
-        rgb_fea = self.avg_convFC(self.avg_pool(rgb)+self.max_pool(rgb))
-        depth_fea = self.max_convFC(self.max_pool(depth)+self.avg_pool(depth))
+        rgb_fea = self.avg_convFC(self.avg_pool(rgb) + self.max_pool(rgb))
+        depth_fea = self.max_convFC(self.max_pool(depth) + self.avg_pool(depth))
         sum_fea = rgb_fea + depth_fea
         sum_fea = self.sum_convFC(sum_fea)
         rgb_out = rgb * sum_fea + rgb
         depth_out = depth * sum_fea + depth
         return rgb_out, depth_out
 
+
 class FusionAttention(nn.Module):
-    def __init__(self, in_channel = 64):
+    def __init__(self, in_channel=64):
         super(FusionAttention, self).__init__()
         # temporal attention (before fusion conv)
         self.max_pool = nn.MaxPool2d(3, 2, 1)
         self.avg_pool = nn.AvgPool2d(3, 2, 1)
         self.rgb_firstConv = nn.Conv2d(in_channel, in_channel, 3, 1, 1)
         self.depth_firstConv = nn.Conv2d(in_channel, in_channel, 3, 1, 1)
-        self.fuse_Conv = nn.Conv2d(in_channel*2, in_channel,3,1,1)
+        self.fuse_Conv = nn.Conv2d(in_channel * 2, in_channel, 3, 1, 1)
         self.fuse_outConv = nn.Conv2d(in_channel, in_channel, 3, 1, 1)
 
         self.attn_ScaleConv1 = nn.Conv2d(in_channel, in_channel, 3, 1, 1)
         self.attnConv1 = nn.Conv2d(in_channel * 2, in_channel, 1)
-        self.attn_ScaleConv2 = nn.Conv2d(in_channel*2, in_channel*2, 3, 1, 1)
-        self.attnConv2 = nn.Conv2d(in_channel * 4, in_channel*2, 1)
+        self.attn_ScaleConv2 = nn.Conv2d(in_channel * 2, in_channel * 2, 3, 1, 1)
+        self.attnConv2 = nn.Conv2d(in_channel * 4, in_channel * 2, 1)
         self.attn_lastConv1 = nn.Conv2d(in_channel, in_channel, 3, 1, 1)
         self.attn_lastConv2 = nn.Conv2d(in_channel, in_channel, 3, 1, 1)
         self.Up = nn.PixelShuffle(2)
-
 
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
         self.relu = nn.ReLU(inplace=True)
         self.upsample = nn.Upsample(
             scale_factor=2, mode='bilinear', align_corners=False)
+
     def forward(self, rgb, depth):
         b, c, h, w = rgb.size()
         # temporal attention
         embedding_rgb = self.rgb_firstConv(rgb.clone())
         embedding_depth = self.depth_firstConv(depth.clone())
-        corr = torch.sum(embedding_rgb*embedding_depth, 1).unsqueeze(1)
+        corr = torch.sum(embedding_rgb * embedding_depth, 1).unsqueeze(1)
         fuse_fea = self.lrelu(self.fuse_Conv(torch.cat((embedding_rgb, embedding_depth), dim=1)))
         fuse_fea = corr * fuse_fea
         fuse_out = self.relu(self.fuse_outConv(fuse_fea))
@@ -152,13 +158,14 @@ class FusionAttention(nn.Module):
         attn_sum_1 = self.lrelu(self.attnConv1(torch.cat((attn_max_1, attn_avg_1), dim=1)))
         attn_sum_1 = self.upsample(attn_sum_1)
 
-
         attn_sum_1_out = self.attn_lastConv1(attn_sum_1)
         # attn_sum_2_up = self.attn_lastConv2(self.Up(attn_sum_2))
         attn = torch.sigmoid(attn_sum_1_out)
 
         out = fuse_out * attn + fuse_out
         return out
+
+
 class FFMCell(nn.Module):
     def __init__(self, c):
         super(FFMCell, self).__init__()
@@ -174,12 +181,13 @@ class FFMCell(nn.Module):
     def forward(self, x, y):
         x_ = self.xConv_first(x)
         y_ = self.yConv_first(y)
-        xy_ = self.xyConv(x_+y_)
+        xy_ = self.xyConv(x_ + y_)
         y_p = self.tanh(self.yPConv(xy_ * y + xy_))
-        z_a = self.sigmoid(self.zConv_a1(x)+self.zConv_a2(y_p))
+        z_a = self.sigmoid(self.zConv_a1(x) + self.zConv_a2(y_p))
         z_b = z_a * y_p
-        x = x*(1-z_a) + z_b
+        x = x * (1 - z_a) + z_b
         return x
+
 
 class FFM(nn.Module):
     def __init__(self, c, nums=3):
@@ -187,6 +195,7 @@ class FFM(nn.Module):
         self.nums = nums
         self.cell1 = FFMCell(c)
         self.cell2 = FFMCell(c)
+
     def forward(self, r, d):
         r_x = r
         r_y = d
@@ -198,14 +207,126 @@ class FFM(nn.Module):
             d_y = self.cell2(d_y, d_x)
         return r_x, d_y
 
+
 class PixUpBlock(nn.Module):
     def __init__(self, in_channel):
         super(PixUpBlock, self).__init__()
         self.up = nn.PixelShuffle(2)
-        self.conv = BasicBlock(in_channel//4, in_channel//4)
+        self.conv = BasicBlock(in_channel // 4, in_channel // 4)
+
     def forward(self, x):
         out = self.conv(self.up(x))
         return out
+
+
+class UpBlock(nn.Module):
+    def __init__(self, in_channel):
+        super(UpBlock, self).__init__()
+        self.upsample = nn.Upsample(
+            scale_factor=2, mode='bilinear', align_corners=False)
+        self.conv = BasicBlock(in_channel, in_channel)
+
+    def forward(self, x):
+        out = self.conv(self.upsample(x))
+        return out
+
+
+#####   aaa
+class RFB(nn.Module):
+    def __init__(self, in_channel, out_channel):
+        super(RFB, self).__init__()
+        self.relu = nn.ReLU(True)
+        self.branch0 = nn.Sequential(
+            nn.Conv2d(in_channel, out_channel, 1),
+        )
+        self.branch1 = nn.Sequential(
+            nn.Conv2d(in_channel, out_channel, 1),
+            nn.Conv2d(out_channel, out_channel, kernel_size=(1, 3), padding=(0, 1)),
+            nn.Conv2d(out_channel, out_channel, kernel_size=(3, 1), padding=(1, 0)),
+            nn.Conv2d(out_channel, out_channel, 3, padding=3, dilation=3)
+        )
+        self.branch2 = nn.Sequential(
+            nn.Conv2d(in_channel, out_channel, 1),
+            nn.Conv2d(out_channel, out_channel, kernel_size=(1, 5), padding=(0, 2)),
+            nn.Conv2d(out_channel, out_channel, kernel_size=(5, 1), padding=(2, 0)),
+            nn.Conv2d(out_channel, out_channel, 3, padding=5, dilation=5)
+        )
+        self.branch3 = nn.Sequential(
+            nn.Conv2d(in_channel, out_channel, 1),
+            nn.Conv2d(out_channel, out_channel, kernel_size=(1, 7), padding=(0, 3)),
+            nn.Conv2d(out_channel, out_channel, kernel_size=(7, 1), padding=(3, 0)),
+            nn.Conv2d(out_channel, out_channel, 3, padding=7, dilation=7)
+        )
+        self.conv_cat = nn.Conv2d(4 * out_channel, out_channel, 3, padding=1)
+        self.conv_res = nn.Conv2d(in_channel, out_channel, 1)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                m.weight.data.normal_(std=0.01)
+                m.bias.data.fill_(0)
+
+    def forward(self, x):
+        x0 = self.branch0(x)
+        x1 = self.branch1(x)
+        x2 = self.branch2(x)
+        x3 = self.branch3(x)
+
+        x_cat = torch.cat((x0, x1, x2, x3), 1)
+        x_cat = self.conv_cat(x_cat)
+
+        x = self.relu(x_cat + self.conv_res(x))
+        return x
+
+
+class aggregation(nn.Module):
+    def __init__(self, channel):
+        super(aggregation, self).__init__()
+        self.relu = nn.ReLU(True)
+
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        self.conv_upsample1 = nn.Conv2d(channel, channel, 3, padding=1)
+        self.conv_upsample2 = nn.Conv2d(channel, channel, 3, padding=1)
+        self.conv_upsample3 = nn.Conv2d(channel, channel, 3, padding=1)
+        self.conv_upsample4 = nn.Conv2d(channel, channel, 3, padding=1)
+        self.conv_upsample5 = nn.Conv2d(2 * channel, 2 * channel, 3, padding=1)
+
+        self.conv_concat2 = nn.Conv2d(2 * channel, 2 * channel, 3, padding=1)
+        self.conv_concat3 = nn.Conv2d(3 * channel, 3 * channel, 3, padding=1)
+        self.conv4 = nn.Conv2d(3 * channel, 3 * channel, 3, padding=1)
+        self.conv5 = nn.Conv2d(3 * channel, 2 * channel, 3, padding=1)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                m.weight.data.normal_(std=0.01)
+                m.bias.data.fill_(0)
+
+    def forward(self, x1, x2, x3):
+        # print(x1.size())
+        # print(x2.size())
+        # print(x3.size())
+        # torch.Size([8, 32, 8, 8])
+        # torch.Size([8, 32, 16, 16])
+        # torch.Size([8, 32, 32, 32])
+        # x1:1/32   x2:1/16   x3:1/8
+        # x1: 1/16 x2: 1/8 x3: 1/4
+        x1_1 = x1
+        x2_1 = self.conv_upsample1(self.upsample(x1)) * x2
+        x3_1 = self.conv_upsample2(self.upsample(self.upsample(x1))) \
+               * self.conv_upsample3(self.upsample(x2)) * x3
+
+        x2_2 = torch.cat((x2_1, self.conv_upsample4(self.upsample(x1_1))), 1)
+        x2_2 = self.conv_concat2(x2_2)
+
+        x3_2 = torch.cat((x3_1, self.conv_upsample5(self.upsample(x2_2))), 1)
+        x3_2 = self.conv_concat3(x3_2)
+
+        x = self.conv4(x3_2)
+        x = self.conv5(x)
+
+        return x
+
+
+########### aaa
 
 class MSJCA(nn.Module):
     def __init__(self):
@@ -252,9 +373,10 @@ class MSJCA(nn.Module):
         ## remember 3,4,5
         return rgb_3, rgb_4, rgb_5, depth_3, depth_4, depth_5
 
-class Decoder_A(nn.Module):
-    def __init__(self):
-        super(Decoder_A, self).__init__()
+
+class aaaaa(nn.Module):
+    def __init__(self, RF_C=64):
+        super(aaaaa, self).__init__()
         self.rgb_con3 = DeResNet34_3()
         self.rgb_con4 = DeResNet34_4()
         self.rgb_con5 = DeResNet34_5()
@@ -263,12 +385,14 @@ class Decoder_A(nn.Module):
         self.depth_con4 = DeResNet34_4()
         self.depth_con5 = DeResNet34_5()
 
-        self.rgbEn3 = RFB(128, 128)
-        self.rgbEn4 = RFB(256, 256)
-        self.rgbEn5 = RFB(512, 512)
-        self.depthEn3 = RFB(128, 128)
-        self.depthEn4 = RFB(256, 256)
-        self.depthEn5 = RFB(512, 512)
+        self.rgbEn3 = RFB(128, RF_C)
+        self.rgbEn4 = RFB(256, RF_C)
+        self.rgbEn5 = RFB(512, RF_C)
+        self.depthEn3 = RFB(128, RF_C)
+        self.depthEn4 = RFB(256, RF_C)
+        self.depthEn5 = RFB(512, RF_C)
+        self.agg1 = aggregation(RF_C)
+        self.agg2 = aggregation(RF_C)
 
     def forward(self, rgb_3, rgb_4, rgb_5, depth_3, depth_4, depth_5):
         rgb_conv5_out = self.rgb_con5(self.rgbEn5(rgb_5))
@@ -283,170 +407,51 @@ class Decoder_A(nn.Module):
         # depth: torch.Size([4, 64, 128, 128])
         return rgb_conv3_out, depth_conv3_out
 
+
 # 可能的总体模型
 class LRGBDSOD(nn.Module):
-    def __init__(self, rfb_out_channel=32):
+    def __init__(self, rfb_out_channel=32, RF_C=64):
         super(LRGBDSOD, self).__init__()
         self.MSJCA = MSJCA()
-        self.Decoder_A = Decoder_A()
-        self.A_fusion = FusionAttention(64)
-        self.A_fuRestoration = nn.Sequential(
-            BasicBlock(64, 64),
-            BasicBlock(64, 64),
-            BasicBlock(64, 64)
-        )
-        self.A_up = PixUpBlock(64)
+        self.upsample = nn.Upsample(
+            scale_factor=2, mode='bilinear', align_corners=False)
+        self.Pixup = nn.PixelShuffle(2)
+        self.fRFB1 = RFB(128, RF_C)
+        self.fRFB2 = RFB(256, RF_C)
+        self.fRFB3 = RFB(512, RF_C)
+        self.agg1 = aggregation(RF_C)
 
-        self.CCA = CenterCombineAttention(in_channel=256)
-        # self.CenterUpConvLast = nn.Sequential(
-        #     PixUpBlock(8),
-        #     nn.Conv2d(2, 2, 3, 1, 1)
-        # )
+        self.fattn1 = FusionAttention(128)
+        self.fattn2 = FusionAttention(256)
+        self.fattn3 = FusionAttention(512)
 
-        self.rgbUpblock1 = nn.Sequential(
-            PixUpBlock(128),
-        )
-
-        self.rgbUpblock2 = nn.Sequential(
-            PixUpBlock(256),
-            nn.Conv2d(64, 128, 3, 1, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            PixUpBlock(128)
-        )
-
-        self.rgbUpblock3 = nn.Sequential(
-            PixUpBlock(512),
-            PixUpBlock(128),
-            nn.Conv2d(32, 128, 3, 1, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            PixUpBlock(128),
-        )
-        self.depthUpblock1 = nn.Sequential(
-            PixUpBlock(128),
-        )
-
-        self.depthUpblock2 = nn.Sequential(
-            PixUpBlock(256),
-            nn.Conv2d(64, 128, 3, 1, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            PixUpBlock(128)
-        )
-
-        self.depthUpblock3 = nn.Sequential(
-            PixUpBlock(512),
-            PixUpBlock(128),
-            nn.Conv2d(32, 128, 3, 1, 1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            PixUpBlock(128),
-        )
-
-        self.fattn1 = FusionAttention(32)
-        self.fattn2 = FusionAttention(32)
-        self.fattn3 = FusionAttention(32)
-
-        self.agg_block_1 = PixUpBlock(32)
-        self.agg_block_2 = PixUpBlock(32)
-        self.agg_block_3 = PixUpBlock(32)
-
-        self.lastUp = nn.Sequential(
-            PixUpBlock(48)
-        )
-        self.CCA_after = nn.Sequential(
-            nn.Conv2d(4, 8, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            BasicBlock(8, 8),
-            BasicBlock(8, 8),
-            BasicBlock(8, 8)
-        )
-        self.last_conv = make_layer(CSBasicBlock, 10, inplanes=48, planes=48)
-        self.out_conv = nn.Conv2d(12, 1, 3, 1, 1)
-
-        # self.Decoder = nn.Sequential()
+        self.Decoder = make_layer(BasicBlock, 10, inplanes=2 * RF_C, planes=2 * RF_C)
+        self.last1_Conv = nn.Conv2d(RF_C // 2, RF_C // 2, 3, 1, 1)
+        self.last2_Conv = nn.Conv2d(RF_C // 8, 1, 3, 1, 1)
 
     def forward(self, low_input, high_input):
         # VGG
         rgb_1, rgb_2, rgb_3, depth_1, depth_2, depth_3 = self.MSJCA(low_input, high_input)
-        r_A, d_A = self.Decoder_A(rgb_1, rgb_2, rgb_3, depth_1, depth_2, depth_3)
-        A_fu = self.A_fusion(r_A, d_A)
-        A_fu = self.A_fuRestoration(A_fu)
-        # r_A,d_A: [4, 64, 64, 64]
 
-        # print("pre:")
-        # print(rgb_1.size())
-        # print(rgb_2.size())
-        # print(rgb_3.size())
-        # print(depth_1.size())
-        # print(depth_2.size())
-        # print(depth_3.size())
+        fa_1 = self.fattn1(rgb_1, depth_1)  # 128, 128, 64
+        fa_2 = self.fattn2(rgb_2, depth_2)  # 128, 128, 32
+        fa_3 = self.fattn3(rgb_3, depth_3)  # 64, 64 ,32
 
-        # pre:
+        fa_1 = self.fRFB1(fa_1)
+        fa_2 = self.fRFB2(fa_2)
+        fa_3 = self.fRFB3(fa_3)
+        attn = self.agg1(fa_3, fa_2, fa_1)  # B, 2*RF_C, 32, 32
 
-        # torch.Size([4, 128, 32, 32])
-        # torch.Size([4, 256, 16, 16])
-        # torch.Size([4, 512, 8, 8])
-        # torch.Size([4, 128, 32, 32])
-        # torch.Size([4, 256, 16, 16])
-        # torch.Size([4, 512, 8, 8])
-        # fus_1 = self.fattn1(rgb_1, depth_1) # [4, 128, 32, 32]
-        # fus_2 = self.fattn2(rgb_2, depth_2) # [4, 256, 16, 16]
-        # fus_3 = self.fattn3(rgb_3, depth_3) # [4, 512, 8, 8]
+        attn = self.upsample(attn)  # B, 2C, 64, 64
 
-        center = self.CCA(rgb_2, depth_2)
-        rgb_1 = self.rgbUpblock1(rgb_1)
-        rgb_2 = self.rgbUpblock2(rgb_2)
-        rgb_3 = self.rgbUpblock3(rgb_3)
+        attn = self.Decoder(attn)
+        attn = self.Pixup(attn)  # B, C, 128, 128
+        attn = self.last1_Conv(attn)
+        attn = self.Pixup(attn)  # B, C, 128, 128
+        out = self.last2_Conv(attn)
 
-        depth_1 = self.depthUpblock1(depth_1)
-        depth_2 = self.depthUpblock2(depth_2)
-        depth_3 = self.depthUpblock3(depth_3)
-        # print("then:")
-        # print(rgb_1.size())
-        # print(rgb_2.size())
-        # print(rgb_3.size())
-        # print(depth_1.size())
-        # print(depth_2.size())
-        # print(depth_3.size())
-
-        # then:
-
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-
-        fa_1 = self.fattn1(rgb_1, depth_1) # 128, 128, 64
-        fa_2 = self.fattn2(rgb_2, depth_2) # 128, 128, 32
-        fa_3 = self.fattn3(rgb_3, depth_3) # 64, 64 ,32
-        # 全部 128， 128 ，32
-        # print("after")
-        # print(fa_1.size())
-        # print(fa_2.size())
-        # print(fa_3.size())
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-        # torch.Size([4, 32, 64, 64])
-
-        fa_1_c = self.agg_block_1(fa_1)
-        fa_2_c = self.agg_block_2(fa_2)
-        fa_3_c = self.agg_block_3(fa_3)
-
-        sum_c = torch.cat((fa_3_c, fa_2_c, fa_1_c, self.CCA_after(center), self.A_up(A_fu)), dim=1) # c=32*3
-        # print("sum_c:", sum_c.size())
-        last = self.last_conv(sum_c)
-        # print("last_conv:", last.size())
-        last = self.lastUp(last)
-        # print("last_up:", last.size())
-        # print(last.size())
-        # print(center.size())
-        out = self.out_conv(last)
-        # print("out:", out.size())
         return out
+
 
 if __name__ == "__main__":
     a = torch.randn(8, 3, 256, 256)

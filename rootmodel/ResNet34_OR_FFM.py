@@ -288,16 +288,17 @@ class LRGBDSOD(nn.Module):
     def __init__(self, rfb_out_channel=32):
         super(LRGBDSOD, self).__init__()
         self.MSJCA = MSJCA()
-        self.Decoder_A = Decoder_A()
-        self.A_fusion = FusionAttention(64)
-        self.A_fuRestoration = nn.Sequential(
-            BasicBlock(64, 64),
-            BasicBlock(64, 64),
-            BasicBlock(64, 64)
-        )
-        self.A_up = PixUpBlock(64)
+        ## self.Decoder_A = Decoder_A()
+        ## self.A_fusion = FusionAttention(64)
+        ## self.A_fuRestoration = nn.Sequential(
+        #     BasicBlock(64, 64),
+        #     BasicBlock(64, 64),
+        #     BasicBlock(64, 64)
+        # )
+        ## self.A_up = PixUpBlock(64)
 
-        self.CCA = CenterCombineAttention(in_channel=256)
+        ## self.CCA = CenterCombineAttention(in_channel=256)
+
         # self.CenterUpConvLast = nn.Sequential(
         #     PixUpBlock(8),
         #     nn.Conv2d(2, 2, 3, 1, 1)
@@ -353,26 +354,27 @@ class LRGBDSOD(nn.Module):
         self.agg_block_3 = PixUpBlock(32)
 
         self.lastUp = nn.Sequential(
-            PixUpBlock(48)
+            PixUpBlock(24)
         )
-        self.CCA_after = nn.Sequential(
-            nn.Conv2d(4, 8, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            BasicBlock(8, 8),
-            BasicBlock(8, 8),
-            BasicBlock(8, 8)
-        )
-        self.last_conv = make_layer(CSBasicBlock, 10, inplanes=48, planes=48)
-        self.out_conv = nn.Conv2d(12, 1, 3, 1, 1)
+        ## self.CCA_after = nn.Sequential(
+        #     nn.Conv2d(4, 8, 3, 1, 1),
+        #     nn.ReLU(inplace=True),
+        #     BasicBlock(8, 8),
+        #     BasicBlock(8, 8),
+        #     BasicBlock(8, 8)
+        # )
+        self.last_conv = make_layer(CSBasicBlock, 10, inplanes=24, planes=24)
+        self.out_conv = nn.Conv2d(6, 1, 3, 1, 1)
 
         # self.Decoder = nn.Sequential()
 
     def forward(self, low_input, high_input):
         # VGG
         rgb_1, rgb_2, rgb_3, depth_1, depth_2, depth_3 = self.MSJCA(low_input, high_input)
-        r_A, d_A = self.Decoder_A(rgb_1, rgb_2, rgb_3, depth_1, depth_2, depth_3)
-        A_fu = self.A_fusion(r_A, d_A)
-        A_fu = self.A_fuRestoration(A_fu)
+        ## r_A, d_A = self.Decoder_A(rgb_1, rgb_2, rgb_3, depth_1, depth_2, depth_3)
+        ## A_fu = self.A_fusion(r_A, d_A)
+        ## A_fu = self.A_fuRestoration(A_fu)
+
         # r_A,d_A: [4, 64, 64, 64]
 
         # print("pre:")
@@ -395,7 +397,7 @@ class LRGBDSOD(nn.Module):
         # fus_2 = self.fattn2(rgb_2, depth_2) # [4, 256, 16, 16]
         # fus_3 = self.fattn3(rgb_3, depth_3) # [4, 512, 8, 8]
 
-        center = self.CCA(rgb_2, depth_2)
+        ## center = self.CCA(rgb_2, depth_2)
         rgb_1 = self.rgbUpblock1(rgb_1)
         rgb_2 = self.rgbUpblock2(rgb_2)
         rgb_3 = self.rgbUpblock3(rgb_3)
@@ -436,7 +438,7 @@ class LRGBDSOD(nn.Module):
         fa_2_c = self.agg_block_2(fa_2)
         fa_3_c = self.agg_block_3(fa_3)
 
-        sum_c = torch.cat((fa_3_c, fa_2_c, fa_1_c, self.CCA_after(center), self.A_up(A_fu)), dim=1) # c=32*3
+        sum_c = torch.cat((fa_3_c, fa_2_c, fa_1_c), dim=1) # c=32*3 , self.CCA_after(center), self.A_up(A_fu)
         # print("sum_c:", sum_c.size())
         last = self.last_conv(sum_c)
         # print("last_conv:", last.size())
