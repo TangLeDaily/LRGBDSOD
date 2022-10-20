@@ -185,7 +185,6 @@ class CSBottleneck(nn.Module):
 
 class BasicBlock(nn.Module):
     expansion = 1
-
     def __init__(self, inplanes, planes, downsample=None):
         super(BasicBlock, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, 3, 1, 1)
